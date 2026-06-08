@@ -11,21 +11,16 @@ import pino from 'pino';
 import { existsSync, mkdirSync } from 'fs';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-const PORT        = process.env.PORT || 3000;
-const API_SECRET  = process.env.API_SECRET || 'qipi-secret-2024';
+const PORT       = process.env.PORT || 3000;
+const API_SECRET = process.env.API_SECRET || 'qipi-secret-2024';
 const AUTH_FOLDER = './auth_info';
 
-// ─── Logger silencioso (solo errores en consola) ───────────────────────────────
 const logger = pino({ level: 'silent' });
+const store  = makeInMemoryStore({ logger });
 
-// ─── Store en memoria (para listar grupos) ────────────────────────────────────
-const store = makeInMemoryStore({ logger });
-
-// ─── Estado global del socket ─────────────────────────────────────────────────
-let sock = null;
+let sock        = null;
 let isConnected = false;
 
-// ─── Crear carpeta de auth si no existe ───────────────────────────────────────
 if (!existsSync(AUTH_FOLDER)) mkdirSync(AUTH_FOLDER);
 
 // ─── Conectar a WhatsApp ──────────────────────────────────────────────────────
@@ -33,16 +28,9 @@ async function connectToWhatsApp() {
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER);
   const { version } = await fetchLatestBaileysVersion();
 
-  sock = makeWASocket({
-    version,
-    auth: state,
-    logger,
-    printQRInTerminal: false, // lo manejamos nosotros
-  });
-
+  sock = makeWASocket({ version, auth: state, logger, printQRInTerminal: false });
   store.bind(sock.ev);
 
-  // QR para escanear
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
@@ -57,13 +45,9 @@ async function connectToWhatsApp() {
       isConnected = false;
       const shouldReconnect =
         new Boom(lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-
       console.log('Conexión cerrada. Reconectando:', shouldReconnect);
-      if (shouldReconnect) {
-        setTimeout(connectToWhatsApp, 3000);
-      } else {
-        console.log('Sesión cerrada. Borra la carpeta auth_info y reinicia.');
-      }
+      if (shouldReconnect) setTimeout(connectToWhatsApp, 3000);
+      else console.log('Sesión cerrada. Borra auth_info y reinicia.');
     }
 
     if (connection === 'open') {
@@ -79,53 +63,47 @@ async function connectToWhatsApp() {
 const app = express();
 app.use(express.json());
 
-// Middleware de autenticación simple
+// Auth
 app.use((req, res, next) => {
-  const secret = req.headers['x-api-secret'];
-  if (secret !== API_SECRET) {
+  if (req.headers['x-api-secret'] !== API_SECRET)
     return res.status(401).json({ error: 'No autorizado' });
-  }
   next();
 });
 
-// GET /status — verificar si está conectado
+// GET /status
 app.get('/status', (req, res) => {
   res.json({ connected: isConnected });
 });
 
-// GET /groups — listar grupos para obtener el ID del grupo QIPI
+// GET /groups — listar todos los grupos para obtener IDs
 app.get('/groups', async (req, res) => {
-  if (!isConnected) {
-    return res.status(503).json({ error: 'WhatsApp no está conectado aún' });
-  }
+  if (!isConnected) return res.status(503).json({ error: 'WhatsApp no conectado' });
   try {
     const groups = await sock.groupFetchAllParticipating();
-    const list = Object.values(groups).map((g) => ({
-      id: g.id,
-      name: g.subject,
-    }));
+    const list = Object.values(groups).map((g) => ({ id: g.id, name: g.subject }));
     res.json({ groups: list });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /send-message — enviar mensaje al grupo
-// Body: { "groupId": "120363XXXXXXXX@g.us", "message": "texto del mensaje" }
+// POST /send-message — enviar mensaje a un grupo específico de una tienda
+// Body: { "groupId": "120363XXXXXXXX@g.us", "message": "texto" }
 app.post('/send-message', async (req, res) => {
-  if (!isConnected) {
-    return res.status(503).json({ error: 'WhatsApp no está conectado aún' });
-  }
+  if (!isConnected) return res.status(503).json({ error: 'WhatsApp no conectado' });
 
   const { groupId, message } = req.body;
 
-  if (!groupId || !message) {
-    return res.status(400).json({ error: 'Faltan campos: groupId y message son requeridos' });
-  }
+  if (!groupId || !message)
+    return res.status(400).json({ error: 'Faltan campos: groupId y message' });
+
+  // Validar formato de groupId de WhatsApp
+  if (!groupId.endsWith('@g.us'))
+    return res.status(400).json({ error: 'groupId inválido, debe terminar en @g.us' });
 
   try {
     await sock.sendMessage(groupId, { text: message });
-    console.log(`✅ Mensaje enviado al grupo ${groupId}`);
+    console.log(`✅ Mensaje enviado → grupo ${groupId}`);
     res.json({ success: true });
   } catch (err) {
     console.error('❌ Error enviando mensaje:', err.message);
@@ -135,8 +113,7 @@ app.post('/send-message', async (req, res) => {
 
 // ─── Arrancar ─────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`\n🚀 QIPI WhatsApp Wrapper corriendo en puerto ${PORT}`);
-  console.log(`   API_SECRET: ${API_SECRET}\n`);
+  console.log(`\n🚀 QIPI WhatsApp Wrapper corriendo en puerto ${PORT}\n`);
 });
 
 connectToWhatsApp();
