@@ -1,16 +1,14 @@
 import pkg from '@whiskeysockets/baileys';
-const {
-  default: makeWASocket,
-  useMultiFileAuthState,
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-} = pkg;
-
 import { Boom } from '@hapi/boom';
 import pino from 'pino';
 import { existsSync, mkdirSync } from 'fs';
 import express from 'express';
 import qr from 'qrcode';
+
+const makeWASocket          = pkg.default;
+const useMultiFileAuthState = pkg.useMultiFileAuthState;
+const DisconnectReason      = pkg.DisconnectReason;
+const fetchLatestBaileysVersion = pkg.fetchLatestBaileysVersion;
 
 const PORT        = process.env.PORT || 3000;
 const API_SECRET  = process.env.API_SECRET || 'qipi-secret-2024';
@@ -41,7 +39,7 @@ async function connectToWhatsApp() {
 
     if (qrCode) {
       lastQR = qrCode;
-      console.log('✅ QR generado — abre /qr en el navegador');
+      console.log('✅ QR generado — abre http://localhost:3000/qr en el navegador');
     }
 
     if (connection === 'close') {
@@ -62,11 +60,9 @@ async function connectToWhatsApp() {
   sock.ev.on('creds.update', saveCreds);
 }
 
-// ─── Express ──────────────────────────────────────────────────────────────────
 const app = express();
 app.use(express.json());
 
-// QR público
 app.get('/qr', async (req, res) => {
   if (isConnected) return res.send('<h2 style="font-family:sans-serif">✅ WhatsApp ya está conectado!</h2>');
   if (!lastQR) return res.send('<h2 style="font-family:sans-serif">⏳ Generando QR... refresca en 10 segundos.</h2><script>setTimeout(()=>location.reload(),5000)</script>');
@@ -85,7 +81,6 @@ app.get('/qr', async (req, res) => {
   }
 });
 
-// Auth
 app.use((req, res, next) => {
   if (req.headers['x-api-secret'] !== API_SECRET)
     return res.status(401).json({ error: 'No autorizado' });
@@ -119,9 +114,7 @@ app.post('/send-message', async (req, res) => {
   }
 });
 
-// Arrancar servidor primero, luego conectar WhatsApp
 app.listen(PORT, () => {
   console.log(`🚀 QIPI Wrapper en puerto ${PORT}`);
-  // Pequeño delay para que el servidor esté listo
   setTimeout(connectToWhatsApp, 2000);
 });
