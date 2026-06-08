@@ -8,10 +8,10 @@ const {
 } = pkg;
 
 import { Boom } from '@hapi/boom';
-import qrcode from 'qrcode-terminal';
 import pino from 'pino';
 import { existsSync, mkdirSync } from 'fs';
 import express from 'express';
+import qr from 'qrcode';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const PORT        = process.env.PORT || 3000;
@@ -23,6 +23,7 @@ const store  = makeInMemoryStore({ logger });
 
 let sock        = null;
 let isConnected = false;
+let lastQR      = null; // guardamos el último QR aquí
 
 if (!existsSync(AUTH_FOLDER)) mkdirSync(AUTH_FOLDER);
 
@@ -35,13 +36,11 @@ async function connectToWhatsApp() {
   store.bind(sock.ev);
 
   sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update;
+    const { connection, lastDisconnect, qr: qrCode } = update;
 
-    if (qr) {
-      console.log('\n──────────────────────────────────────────');
-      console.log('  Escanea este QR con el chip de QIPI:');
-      console.log('──────────────────────────────────────────\n');
-      qrcode.generate(qr, { small: true });
+    if (qrCode) {
+      lastQR = qrCode; // guardamos el QR para mostrarlo en el navegador
+      console.log('QR generado — abre /qr en el navegador para escanearlo');
     }
 
     if (connection === 'close') {
@@ -55,7 +54,8 @@ async function connectToWhatsApp() {
 
     if (connection === 'open') {
       isConnected = true;
-      console.log('\n✅ WhatsApp conectado exitosamente!\n');
+      lastQR = null;
+      console.log('✅ WhatsApp conectado exitosamente!');
     }
   });
 
@@ -66,16 +66,44 @@ async function connectToWhatsApp() {
 const app = express();
 app.use(express.json());
 
+// GET /qr — página HTML con el QR para escanear (sin auth para poder abrirlo fácil)
+app.get('/qr', async (req, res) => {
+  if (isConnected) {
+    return res.send('<h2>✅ WhatsApp ya está conectado!</h2>');
+  }
+  if (!lastQR) {
+    return res.send('<h2>⏳ Esperando QR... refresca en unos segundos.</h2>');
+  }
+  try {
+    const qrImage = await qr.toDataURL(lastQR);
+    res.send(`
+      <html>
+        <body style="display:flex;flex-direction:column;align-items:center;font-family:sans-serif;padding:40px">
+          <h2>Escanea este QR con el chip de QIPI</h2>
+          <img src="${qrImage}" style="width:300px;height:300px"/>
+          <p>Abre WhatsApp → Dispositivos vinculados → Vincular dispositivo</p>
+          <p><small>Esta página se puede cerrar después de escanear</small></p>
+        </body>
+      </html>
+    `);
+  } catch (err) {
+    res.status(500).send('Error generando QR: ' + err.message);
+  }
+});
+
+// Auth middleware para el resto de endpoints
 app.use((req, res, next) => {
   if (req.headers['x-api-secret'] !== API_SECRET)
     return res.status(401).json({ error: 'No autorizado' });
   next();
 });
 
+// GET /status
 app.get('/status', (req, res) => {
   res.json({ connected: isConnected });
 });
 
+// GET /groups
 app.get('/groups', async (req, res) => {
   if (!isConnected) return res.status(503).json({ error: 'WhatsApp no conectado' });
   try {
@@ -87,6 +115,7 @@ app.get('/groups', async (req, res) => {
   }
 });
 
+// POST /send-message
 app.post('/send-message', async (req, res) => {
   if (!isConnected) return res.status(503).json({ error: 'WhatsApp no conectado' });
 
@@ -107,7 +136,8 @@ app.post('/send-message', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`\n🚀 QIPI WhatsApp Wrapper corriendo en puerto ${PORT}\n`);
+  console.log(`\n🚀 QIPI WhatsApp Wrapper corriendo en puerto ${PORT}`);
+  console.log(`   Abre /qr en el navegador para vincular WhatsApp\n`);
 });
 
 connectToWhatsApp();
