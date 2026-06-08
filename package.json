@@ -1,0 +1,17 @@
+{
+  "name": "qipi-whatsapp-wrapper",
+  "version": "1.0.0",
+  "description": "Wrapper de WhatsApp para QIPI usando Baileys",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "express": "^4.18.2",
+    "pino": "^8.17.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
