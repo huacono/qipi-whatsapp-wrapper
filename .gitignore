@@ -1,0 +1,7 @@
+node_modules/
+auth_info/
+auth_info_backup_*/
+auth_info_bak_*/
+auth_info_dead_*/
+auth_info_old_*/
+.env
