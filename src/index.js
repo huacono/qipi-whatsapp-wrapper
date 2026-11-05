@@ -86,10 +86,31 @@ app.get("/groups", async (req, res) => {
 
 app.post("/send-message", async (req, res) => {
   if (!isConnected) return res.status(503).json({ error: "No conectado" });
-  const { groupId, message } = req.body;
+  const { groupId, message, imageUrl } = req.body;
   if (!groupId || !message) return res.status(400).json({ error: "Faltan groupId y message" });
   if (!/^[\d-]+@(g\.us|s\.whatsapp\.net)$/.test(groupId)) { return res.status(400).json({ error: "Formato de groupId invalido" }); }
-  try { await sock.sendMessage(groupId, { text: message }); } catch (err) { console.error("Fallo al enviar mensaje a " + groupId + ":", err.message); return res.status(500).json({ error: "Fallo al enviar mensaje", detail: err.message }); }
+  try {
+    if (imageUrl) {
+      await sock.sendMessage(groupId, {
+        image: { url: imageUrl },
+        caption: message,
+      });
+    } else {
+      await sock.sendMessage(groupId, { text: message });
+    }
+  } catch (err) {
+    console.error("Fallo al enviar mensaje a " + groupId + ":", err.message);
+    if (imageUrl) {
+      try {
+        console.log("Reintentando con fallback a texto plano...");
+        await sock.sendMessage(groupId, { text: `${message}\n\n📷 *Foto de la guía:* ${imageUrl}` });
+        return res.json({ success: true, fallback: true });
+      } catch (fallbackErr) {
+        console.error("Fallo también el fallback a texto:", fallbackErr.message);
+      }
+    }
+    return res.status(500).json({ error: "Fallo al enviar mensaje", detail: err.message });
+  }
   res.json({ success: true });
 });
 
