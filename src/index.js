@@ -91,10 +91,28 @@ app.post("/send-message", async (req, res) => {
   if (!/^[\d-]+@(g\.us|s\.whatsapp\.net)$/.test(groupId)) { return res.status(400).json({ error: "Formato de groupId invalido" }); }
   try {
     if (imageUrl) {
+      console.log(`[Wrapper] Enviando imagen multimedia desde URL: ${imageUrl}`);
+      let imageContent;
+      try {
+        const imgRes = await fetch(imageUrl);
+        if (imgRes.ok) {
+          const arrayBuffer = await imgRes.arrayBuffer();
+          imageContent = Buffer.from(arrayBuffer);
+          console.log(`[Wrapper] Imagen descargada exitosamente (${imageContent.length} bytes). Enviando como Buffer...`);
+        } else {
+          console.warn(`[Wrapper] No se pudo descargar la imagen (${imgRes.status}). Usando fallback { url }...`);
+          imageContent = { url: imageUrl };
+        }
+      } catch (fetchErr) {
+        console.warn(`[Wrapper] Fallo fetch directo de imagen: ${fetchErr.message}. Usando { url }...`);
+        imageContent = { url: imageUrl };
+      }
+
       await sock.sendMessage(groupId, {
-        image: { url: imageUrl },
+        image: imageContent,
         caption: message,
       });
+      console.log(`[Wrapper] Imagen multimedia enviada exitosamente a ${groupId}`);
     } else {
       await sock.sendMessage(groupId, { text: message });
     }
