@@ -76,6 +76,8 @@ app.use((req, res, next) => {
   next();
 });
 
+app.get("/version", (req, res) => res.json({ version: "multimedia-v1", commit: "31828bb", updated_at: "2026-11-05T02:32:00Z" }));
+
 app.get("/status", (req, res) => res.json({ connected: isConnected }));
 
 app.get("/groups", async (req, res) => {
